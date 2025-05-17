@@ -1,0 +1,182 @@
+(function () {
+    const directionConfig = [
+        { key: 'ArrowLeft',  rotations: 0 },
+        { key: 'ArrowDown',  rotations: 1 },
+        { key: 'ArrowRight', rotations: 2 },
+        { key: 'ArrowUp',    rotations: 3 },
+      ];
+    function clone(arr) {
+        return arr.slice();
+    }
+
+    class AI {
+        constructor() {
+            this.best_operation = -1;
+            this.grid = Array(16);
+            this.node = 0;
+            this.max_depth = 3;
+        }
+
+        MoveLeft(s) {
+            let k = 0, base = 0, score = 0;
+            const result = new Array(16).fill(0);
+            for (let i = 4; i <= 16; i += 4) {
+                while (k < i) {
+                    if (s[k] === 0) {
+                        ++k;
+                        continue;
+                    }
+                    if (k + 1 < i && s[k] === s[k + 1]) {
+                        result[base++] = s[k] * 2;
+                        score += s[k] * 2;
+                        k += 2;
+                    } else {
+                        result[base++] = s[k++];
+                    }
+                }
+                while (base < i) result[base++] = 0;
+            }
+            return [result, score];
+        }
+
+        Rotate(s) {
+            return [
+                s[12], s[8], s[4], s[0],
+                s[13], s[9], s[5], s[1],
+                s[14], s[10], s[6], s[2],
+                s[15], s[11], s[7], s[3]
+            ];
+        }
+
+        Estimate(s) {
+            let diff = 0, sum = 0;
+            for (let i = 0; i < 16; ++i) {
+                sum += s[i];
+                if (i % 4 !== 3) diff += Math.abs(s[i] - s[i + 1]);
+                if (i < 12) diff += Math.abs(s[i] - s[i + 4]);
+            }
+            return (sum * 4 - diff) * 2;
+        }
+
+        Search(s, depth) {
+            this.node++;
+            if (depth >= this.max_depth) return this.Estimate(s);
+            let best = -1e30;
+            for (let i = 0; i < 4; ++i) {
+                const [t, score] = this.MoveLeft(s);
+                const same = t.every((v, j) => v === s[j]);
+                if (!same) {
+                    let temp = 0;
+                    let empty_slots = 0;
+                    for (let j = 0; j < 16; ++j) {
+                        if (t[j] === 0) {
+                            const t2 = clone(t); t2[j] = 2;
+                            temp += this.Search(t2, depth + 1) * 0.9;
+                            const t4 = clone(t); t4[j] = 4;
+                            temp += this.Search(t4, depth + 1) * 0.1;
+                            empty_slots++;
+                        }
+                    }
+                    temp = empty_slots ? temp / empty_slots : -1e10;
+                    if (score + temp > best) {
+                        best = score + temp;
+                        if (depth === 0) this.best_operation = i;
+                    }
+                }
+                if (i !== 3) s = this.Rotate(s);
+            }
+            return best;
+        }
+
+        SetTile(x, y, v) {
+            this.grid[x + y * 4] = v;
+        }
+
+        StartSearch() {
+            this.node = 0;
+            this.max_depth = 3;
+            while (true) {
+                this.node = 0;
+                this.Search(this.grid.slice(), 0);
+                if (this.node >= 10000  this.max_depth >= 8) break;
+                this.max_depth++;
+            }
+        }
+    }
+
+    function getBoardState() {
+        const grid = Array(16).fill(0);
+        const tiles = document.querySelectorAll('div.absolute');
+
+        for (const tile of tiles) {
+            const span = tile.querySelector('span');
+            if (!span) continue;
+            const val = parseInt(span.innerText.trim());
+            if (isNaN(val)) continue;
+
+            const style = tile.getAttribute('style')  '';
+            const topMatch = style.match(/top:\s*calc\((\d+)%\s*\+\s*[\d.]+rem\)/);
+            const leftMatch = style.match(/left:\s*calc\((\d+)%\s*\+\s*[\d.]+rem\)/);
+if (!topMatch  !leftMatch) continue;
+
+
+            const row = parseInt(topMatch[1]) / 25;
+            const col = parseInt(leftMatch[1]) / 25;
+            const index = row * 4 + col;
+            if (index >= 0 && index < 16) {
+                grid[index] = val;
+            }
+        }
+
+        return grid;
+    }
+
+    function sendKey(key) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+
+    function isValidMove(original, dirIndex, moveFn, rotateFn) {
+        let test = original.slice();
+        for (let i = 0; i < directionConfig[dirIndex].rotations; i++) {
+            test = rotateFn(test);
+        }
+        const [moved] = moveFn(test);
+        return !moved.every((v, j) => v === test[j]);
+    }
+
+
+    function makeMove() {
+        const grid = getBoardState();
+        const ai = new AI();
+        for (let y = 0; y < 4; ++y) {
+            for (let x = 0; x < 4; ++x) {
+                ai.SetTile(x, y, grid[y * 4 + x]);
+            }
+        }
+        ai.StartSearch();
+
+        let best = ai.best_operation;
+        if (best < 0  !isValidMove(grid, best, ai.MoveLeft.bind(ai), ai.Rotate.bind(ai))) {
+            best = directionConfig.findIndex((_, i) =>
+                isValidMove(grid, i, ai.MoveLeft.bind(ai), ai.Rotate.bind(ai))
+            );
+        }
+        if (best < 0) {
+            console.warn('No valid move. Stopping AI.');
+            return;
+        }
+        sendKey(directionConfig[best].key);
+    }
+
+    function playGame(delay = 100) {
+        setInterval(() => {
+            try {
+                makeMove();
+            } catch (err) {
+                console.error('AI failed:', err);
+            }
+        }, delay);
+    }
+
+    playGame(100);
+})();
